@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homework Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="binder">
+
+  <header class="binder-head">
+    <h1>Homework Planner</h1>
+    <p class="subhead" id="statusLine">Checking your teachers' sites&hellip;</p>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab tab-all active" data-subject="all">All</button>
+    <button class="tab tab-math" data-subject="math">Math</button>
+    <button class="tab tab-science" data-subject="science">Science</button>
+    <button class="tab tab-language_arts" data-subject="language_arts">Language Arts</button>
+    <button class="refresh-btn" id="refreshBtn" title="Check the sites again right now">&#8635; Refresh</button>
+  </nav>
+
+  <main class="sheet">
+
+    <section id="todaySection" class="today-note" hidden>
+      <h2>Due Today</h2>
+      <ul id="todayList" class="entry-list"></ul>
+    </section>
+
+    <section id="upcomingSection">
+      <h2 id="upcomingHeading">Everything</h2>
+      <ul id="upcomingList" class="entry-list"></ul>
+      <p id="emptyMsg" class="empty" hidden>Nothing found here yet.</p>
+    </section>
+
+  </main>
+
+  <footer class="binder-foot">
+    <span id="lastChecked"></span>
+  </footer>
+
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
