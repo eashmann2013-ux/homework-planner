@@ -80,14 +80,12 @@ function render() {
   const dueToday = entries.filter((e) => e.date === state.today);
   const rest = entries.filter((e) => e.date !== state.today);
 
-  // Sort: dated items chronologically first, undated items after, most-recently-posted first
+  // Sort newest-posted first, so the most recently added homework shows at the top
+  // (falls back to due date if an entry has no posted date)
   rest.sort((a, b) => {
-    const ad = a.date || a.posted;
-    const bd = b.date || b.posted;
-    if (ad && bd) return ad.localeCompare(bd);
-    if (ad && !bd) return -1;
-    if (!ad && bd) return 1;
-    return (b.posted || "").localeCompare(a.posted || "");
+    const aKey = a.posted || a.date || "";
+    const bKey = b.posted || b.date || "";
+    return bKey.localeCompare(aKey);
   });
 
   els.todayList.innerHTML = "";
