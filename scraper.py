@@ -141,10 +141,12 @@ def scrape_science():
 
 # ---------------------------------------------------------------------------
 # Math — the homework itself lives in a linked Google Doc, not the page.
-# We find the doc link on the page, then pull the doc as plain text and
-# look for date-like lines to split it into entries. If no dates are found
-# (doc formatted differently than expected), we fall back to returning the
-# whole document as one entry so nothing is lost.
+# Ms. Larcher's doc uses a TABLE with separate "Date Assigned" and "Date Due"
+# columns, so we export the doc as HTML (which preserves table structure,
+# unlike a plain-text export) and read it column by column. If no table is
+# found (doc reformatted, or it's a plain-text doc after all), we fall back
+# to a line-by-line date scan, and finally to dumping the raw text so
+# nothing silently disappears.
 # ---------------------------------------------------------------------------
 DOC_ID_RE = re.compile(r"/d/([a-zA-Z0-9_-]+)|[?&]id=([a-zA-Z0-9_-]+)")
 DATE_LINE = re.compile(
@@ -152,10 +154,88 @@ DATE_LINE = re.compile(
     r"(\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?|[A-Za-z]+\s+\d{1,2}(,?\s*\d{2,4})?)\b[:\-]?\s*(.*)$"
 )
 
+ASSIGNED_HEADER_HINTS = ("assign", "posted", "given", "start")
+DUE_HEADER_HINTS = ("due",)
+DESC_HEADER_HINTS = ("assignment", "homework", "topic", "description", "notes", "task", "work")
+
+
+def _extract_table_entries(doc_soup, doc_link):
+    """Read Date Assigned / Date Due / Assignment out of the doc's table(s)."""
+    entries = []
+    for table in doc_soup.find_all("table"):
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            continue
+
+        header_cells = [c.get_text(" ", strip=True) for c in rows[0].find_all(["th", "td"])]
+        header_lower = [h.lower() for h in header_cells]
+        if not header_cells:
+            continue
+
+        assigned_idx = due_idx = desc_idx = None
+        for i, h in enumerate(header_lower):
+            if assigned_idx is None and any(hint in h for hint in ASSIGNED_HEADER_HINTS):
+                assigned_idx = i
+            elif due_idx is None and any(hint in h for hint in DUE_HEADER_HINTS):
+                due_idx = i
+            elif desc_idx is None and any(hint in h for hint in DESC_HEADER_HINTS):
+                desc_idx = i
+
+        # This table isn't a homework table if it has neither an assigned nor a due column
+        if assigned_idx is None and due_idx is None:
+            continue
+
+        if desc_idx is None:
+            used = {i for i in (assigned_idx, due_idx) if i is not None}
+            remaining = [i for i in range(len(header_cells)) if i not in used]
+            desc_idx = remaining[0] if remaining else None
+
+        for row in rows[1:]:
+            cells = [c.get_text(" ", strip=True) for c in row.find_all(["th", "td"])]
+            if not cells or not any(cells):
+                continue
+            posted = (_safe_parse_date(cells[assigned_idx])
+                      if assigned_idx is not None and assigned_idx < len(cells) else None)
+            due = (_safe_parse_date(cells[due_idx])
+                   if due_idx is not None and due_idx < len(cells) else None)
+            text = (cells[desc_idx].strip()
+                    if desc_idx is not None and desc_idx < len(cells) else " ".join(cells).strip())
+            if not text:
+                continue
+            entries.append({
+                "subject": "math",
+                "date": due,
+                "posted": posted,
+                "text": text,
+                "source": doc_link,
+            })
+    return entries
+
+
+def _extract_line_entries(doc_text, doc_link):
+    """Fallback for a non-table doc: scan lines for a leading date."""
+    entries = []
+    lines = [ln.strip() for ln in doc_text.split("\n") if ln.strip()]
+    current = None
+    for line in lines:
+        dm = DATE_LINE.match(line)
+        if dm and len(line) < 60:
+            if current and current["text"]:
+                entries.append(current)
+            posted = _safe_parse_date(dm.group(2))
+            current = {"subject": "math", "date": posted, "posted": posted,
+                       "text": (dm.group(5) or "").strip(), "source": doc_link}
+        elif current is not None:
+            current["text"] = (current["text"] + " " + line).strip() if current["text"] else line
+        else:
+            current = {"subject": "math", "date": None, "posted": None, "text": line, "source": doc_link}
+    if current and current["text"]:
+        entries.append(current)
+    return entries, lines
+
 
 def scrape_math():
     page_url = SITES["math"]
-    entries = []
     try:
         resp = requests.get(page_url, headers=HEADERS, timeout=15)
         resp.raise_for_status()
@@ -177,37 +257,28 @@ def scrape_math():
                       "text": "Found a link on the Math page but couldn't read its document ID.",
                       "source": doc_link}]
 
-        export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
-        doc_resp = requests.get(export_url, headers=HEADERS, timeout=15)
-        doc_resp.raise_for_status()
-        doc_lines = [ln.strip() for ln in doc_resp.text.split("\n") if ln.strip()]
+        # HTML export preserves table structure — try this first since her doc uses a table
+        html_url = f"https://docs.google.com/document/d/{doc_id}/export?format=html"
+        html_resp = requests.get(html_url, headers=HEADERS, timeout=15)
+        html_resp.raise_for_status()
+        doc_soup = BeautifulSoup(html_resp.text, "html.parser")
 
-        current = None
-        for line in doc_lines:
-            dm = DATE_LINE.match(line)
-            if dm and len(line) < 60:  # date headers are short; long lines are body text
-                if current and current["text"]:
-                    entries.append(current)
-                date_str = dm.group(2)
-                rest = dm.group(5) or ""
-                posted = _safe_parse_date(date_str)
-                current = {"subject": "math", "date": posted, "posted": posted,
-                           "text": rest.strip(), "source": doc_link}
-            elif current is not None:
-                current["text"] = (current["text"] + " " + line).strip() if current["text"] else line
-            else:
-                current = {"subject": "math", "date": None, "posted": None,
-                           "text": line, "source": doc_link}
+        entries = _extract_table_entries(doc_soup, doc_link)
+        if entries:
+            return entries
 
-        if current and current["text"]:
-            entries.append(current)
+        # No usable table found — fall back to scanning plain text for dated lines
+        txt_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+        txt_resp = requests.get(txt_url, headers=HEADERS, timeout=15)
+        txt_resp.raise_for_status()
+        entries, lines = _extract_line_entries(txt_resp.text, doc_link)
+        if entries:
+            return entries
 
-        if not entries:
-            full_text = " ".join(doc_lines)[:2000]
-            entries = [{"subject": "math", "date": None, "posted": None,
-                        "text": full_text or "The homework document appears to be empty.",
-                        "source": doc_link}]
-        return entries
+        full_text = " ".join(lines)[:2000]
+        return [{"subject": "math", "date": None, "posted": None,
+                  "text": full_text or "The homework document appears to be empty.",
+                  "source": doc_link}]
 
     except requests.RequestException as e:
         return [{"subject": "math", "date": None, "posted": None,
