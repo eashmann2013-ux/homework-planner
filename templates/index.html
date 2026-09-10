@@ -10,14 +10,38 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
- 
+
 <div class="binder">
- 
+
   <header class="binder-head">
     <h1>Homework Planner</h1>
     <p class="subhead" id="statusLine">Checking your teachers' sites&hellip;</p>
+    <button id="changeTeachersBtn" class="change-teachers-btn" hidden>Change my teachers</button>
   </header>
- 
+
+  <section id="pickerSection" class="picker" hidden>
+    <h2>Choose your teachers</h2>
+    <p class="picker-intro">Pick your teacher for each subject. You can change this anytime.</p>
+
+    <div class="picker-row">
+      <label for="mathPicker">Math</label>
+      <select id="mathPicker"><option value="">Select your Math teacher&hellip;</option></select>
+    </div>
+    <div class="picker-row">
+      <label for="sciencePicker">Science</label>
+      <select id="sciencePicker"><option value="">Select your Science teacher&hellip;</option></select>
+    </div>
+    <div class="picker-row">
+      <label for="laPicker">Language Arts</label>
+      <select id="laPicker"><option value="">Select your Language Arts teacher&hellip;</option></select>
+    </div>
+
+    <button id="savePickerBtn" class="save-picker-btn">Save and see my homework</button>
+    <p id="pickerMsg" class="picker-msg" hidden>Pick at least one teacher to continue.</p>
+  </section>
+
+  <div id="appContent">
+
   <nav class="tabs" id="tabs">
     <button class="tab tab-all active" data-subject="all">All</button>
     <button class="tab tab-math" data-subject="math">Math</button>
@@ -26,36 +50,37 @@
     <button class="tab tab-google_classroom" data-subject="google_classroom">Google Classroom</button>
     <button class="refresh-btn" id="refreshBtn" title="Check the sites again right now">&#8635; Refresh</button>
   </nav>
- 
+
   <main class="sheet">
- 
+
     <section id="todaySection" class="today-note" hidden>
       <h2>Due Today</h2>
       <ul id="todayList" class="entry-list"></ul>
     </section>
- 
+
     <section id="classroomConnect" class="connect-panel" hidden>
       <h2>Connect Google Classroom</h2>
       <p id="classroomConnectMsg">See homework from Google Classroom here too, alongside your teacher sites.</p>
       <a href="/connect-classroom" id="connectBtn" class="connect-btn">Connect Google Classroom</a>
     </section>
- 
+
     <section id="upcomingSection">
       <h2 id="upcomingHeading">Everything</h2>
       <ul id="upcomingList" class="entry-list"></ul>
       <p id="emptyMsg" class="empty" hidden>Nothing found here yet.</p>
       <button id="disconnectBtn" class="disconnect-btn" hidden>Disconnect Google Classroom</button>
     </section>
- 
+
   </main>
- 
+
   <footer class="binder-foot">
     <span id="lastChecked"></span>
   </footer>
- 
+
+  </div>
+
 </div>
- 
+
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
- 
