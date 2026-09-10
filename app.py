@@ -92,7 +92,7 @@ def oauth2callback():
     flow = classroom.build_flow(_redirect_uri())
     flow.fetch_token(authorization_response=request.url)
     session["classroom_credentials"] = classroom.credentials_to_dict(flow.credentials)
-    return redirect(url_for("index"))
+    return redirect(url_for("index", tab="google_classroom"))
 
 
 @app.route("/disconnect-classroom", methods=["POST"])
