@@ -2,12 +2,15 @@ const SUBJECT_LABEL = {
   math: "Math",
   science: "Science",
   language_arts: "Language Arts",
+  google_classroom: "Google Classroom",
 };
 
 const state = {
   subject: "all",
-  homework: { math: [], science: [], language_arts: [] },
+  homework: { math: [], science: [], language_arts: [], google_classroom: [] },
   today: null,
+  classroomConnected: false,
+  classroomConfigured: true,
 };
 
 const els = {
@@ -20,6 +23,9 @@ const els = {
   upcomingList: document.getElementById("upcomingList"),
   emptyMsg: document.getElementById("emptyMsg"),
   lastChecked: document.getElementById("lastChecked"),
+  classroomConnect: document.getElementById("classroomConnect"),
+  classroomConnectMsg: document.getElementById("classroomConnectMsg"),
+  disconnectBtn: document.getElementById("disconnectBtn"),
 };
 
 function formatDayLabel(isoDate, todayIso) {
@@ -36,7 +42,7 @@ function formatDayLabel(isoDate, todayIso) {
 
 function allEntries() {
   const subjects = state.subject === "all"
-    ? ["math", "science", "language_arts"]
+    ? ["math", "science", "language_arts", "google_classroom"]
     : [state.subject];
   let entries = [];
   subjects.forEach((s) => {
@@ -74,6 +80,24 @@ function entryRow(entry, { showTag }) {
 }
 
 function render() {
+  const onClassroomTab = state.subject === "google_classroom";
+  const needsConnect = onClassroomTab && !state.classroomConnected;
+
+  if (needsConnect) {
+    els.classroomConnect.hidden = false;
+    els.classroomConnectMsg.textContent = state.classroomConfigured
+      ? "See homework from Google Classroom here too, alongside your teacher sites."
+      : "Google Classroom isn't set up on this server yet.";
+    document.getElementById("connectBtn").style.display = state.classroomConfigured ? "inline-block" : "none";
+    els.todaySection.hidden = true;
+    els.upcomingList.innerHTML = "";
+    els.emptyMsg.hidden = true;
+    els.disconnectBtn.hidden = true;
+    return;
+  }
+  els.classroomConnect.hidden = true;
+  els.disconnectBtn.hidden = !onClassroomTab || !state.classroomConnected;
+
   const showTag = state.subject === "all";
   const entries = allEntries();
 
@@ -116,6 +140,11 @@ async function loadData(force) {
     const data = await res.json();
     state.homework = data.homework;
     state.today = data.today;
+    state.classroomConnected = data.classroom_connected;
+    state.classroomConfigured = data.classroom_configured;
+    if (data.classroom_error) {
+      console.warn("Classroom error:", data.classroom_error);
+    }
     const fetchedAt = new Date(data.fetched_at);
     els.lastChecked.textContent = "Last checked " + fetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     els.status.textContent = "Here's what's due.";
@@ -137,5 +166,11 @@ els.tabs.addEventListener("click", (evt) => {
 });
 
 els.refreshBtn.addEventListener("click", () => loadData(true));
+
+els.disconnectBtn.addEventListener("click", async () => {
+  await fetch("/disconnect-classroom", { method: "POST" });
+  state.classroomConnected = false;
+  render();
+});
 
 loadData(false);
