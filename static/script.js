@@ -173,4 +173,21 @@ els.disconnectBtn.addEventListener("click", async () => {
   render();
 });
 
+function applyInitialTab() {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("tab");
+  const valid = ["all", "math", "science", "language_arts", "google_classroom"];
+  if (!requested || !valid.includes(requested)) return;
+
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  const btn = document.querySelector(`.tab[data-subject="${requested}"]`);
+  if (btn) btn.classList.add("active");
+  state.subject = requested;
+
+  // clean the URL so refreshing later doesn't keep forcing this tab
+  const cleanUrl = window.location.pathname;
+  window.history.replaceState({}, "", cleanUrl);
+}
+
+applyInitialTab();
 loadData(false);
