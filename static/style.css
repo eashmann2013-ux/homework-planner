@@ -223,6 +223,81 @@ h2 {
 }
 .disconnect-btn:hover { color: var(--ink); }
 
+.change-teachers-btn {
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-top: 4px;
+}
+.change-teachers-btn:hover { color: var(--ink); }
+
+.picker {
+  background: var(--sheet);
+  border-radius: 4px 14px 14px 14px;
+  padding: 32px;
+  margin: 8px 4px 32px;
+}
+
+.picker h2 { font-size: 1.3rem; margin-bottom: 6px; }
+
+.picker-intro {
+  color: var(--ink-soft);
+  margin: 0 0 24px;
+}
+
+.picker-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.picker-row label {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.picker-row select {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.save-picker-btn {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  background: var(--ink);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.save-picker-btn:hover { opacity: 0.9; }
+
+.picker-msg {
+  color: var(--la);
+  font-size: 0.85rem;
+  margin-top: 10px;
+}
+
+@media (max-width: 480px) {
+  .picker { padding: 22px 18px; }
+}
+
 .binder-foot {
   text-align: center;
   color: var(--ink-soft);
