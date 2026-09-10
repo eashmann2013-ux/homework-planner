@@ -3,30 +3,34 @@ import time
 import datetime
 from flask import Flask, jsonify, render_template, session, redirect, request, url_for
 
-from scraper import scrape_all
+import teachers
+from scraper import fetch_homework_for_teacher
 import classroom
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me-in-production")
 
-# Small server-side cache for the three scraped sites (these are the same
-# for every visitor, so one shared cache is fine). Classroom data is NOT
-# cached here since it's different per person and lives in their session.
-_cache = {"data": None, "fetched_at": 0}
+# Cache per teacher id, since different visitors can pick different teachers.
+# Keyed by teacher id -> {"data": [...], "fetched_at": timestamp}
+_cache = {}
 CACHE_SECONDS = 5 * 60
 
 
-def get_scraped_homework(force=False):
+def get_homework_for_teacher_id(teacher_id, force=False):
+    teacher = teachers.by_id(teacher_id)
+    if not teacher:
+        return [], time.time()
+
     now = time.time()
-    if force or _cache["data"] is None or (now - _cache["fetched_at"]) > CACHE_SECONDS:
-        _cache["data"] = scrape_all()
-        _cache["fetched_at"] = now
-    return _cache["data"], _cache["fetched_at"]
+    cached = _cache.get(teacher_id)
+    if force or cached is None or (now - cached["fetched_at"]) > CACHE_SECONDS:
+        data = fetch_homework_for_teacher(teacher)
+        _cache[teacher_id] = {"data": data, "fetched_at": now}
+        return data, now
+    return cached["data"], cached["fetched_at"]
 
 
 def _redirect_uri():
-    # Built from the current request so this works on localhost AND once deployed,
-    # without hardcoding a URL anywhere in the code.
     return url_for("oauth2callback", _external=True)
 
 
@@ -37,6 +41,11 @@ def index():
         today=datetime.date.today().isoformat(),
         classroom_configured=classroom.is_configured(),
     )
+
+
+@app.route("/api/teachers")
+def api_teachers():
+    return jsonify(teachers.all_grouped())
 
 
 @app.route("/api/homework")
@@ -50,12 +59,24 @@ def api_refresh():
 
 
 def _homework_response(force):
-    data, fetched_at = get_scraped_homework(force=force)
-    homework = dict(data)  # copy so we don't mutate the shared cache
+    selected = {
+        "math": request.args.get("math_teacher", ""),
+        "science": request.args.get("science_teacher", ""),
+        "language_arts": request.args.get("language_arts_teacher", ""),
+    }
+
+    homework = {}
+    latest_fetch = 0
+    for subject, teacher_id in selected.items():
+        if not teacher_id:
+            homework[subject] = []
+            continue
+        entries, fetched_at = get_homework_for_teacher_id(teacher_id, force=force)
+        homework[subject] = entries
+        latest_fetch = max(latest_fetch, fetched_at)
 
     classroom_connected = "classroom_credentials" in session
     classroom_error = None
-
     if classroom_connected:
         entries, refreshed, error = classroom.fetch_classroom_homework(session["classroom_credentials"])
         if refreshed:
@@ -67,7 +88,7 @@ def _homework_response(force):
 
     return jsonify({
         "homework": homework,
-        "fetched_at": datetime.datetime.fromtimestamp(fetched_at).isoformat(),
+        "fetched_at": datetime.datetime.fromtimestamp(latest_fetch).isoformat() if latest_fetch else None,
         "today": datetime.date.today().isoformat(),
         "classroom_connected": classroom_connected,
         "classroom_configured": classroom.is_configured(),
