@@ -1,19 +1,21 @@
 """
 scraper.py
-Pulls homework listings from the three teacher sites and normalizes them
-into a common format:
+A small library of parsing strategies for teacher homework pages, plus a
+single entry point — fetch_homework_for_teacher(teacher) — that looks up
+a teacher's "parser" field (see teachers.py) and runs the matching one.
+
+Each parser takes a teacher dict and returns a list of entries shaped like:
 
     {
         "subject": "math" | "science" | "language_arts",
-        "date": "2026-09-04" or None,     # due date if we could find one, ISO format
+        "date": "2026-09-04" or None,     # due date, ISO format
         "posted": "2026-08-31" or None,   # date the entry was posted, ISO format
         "text": "Observation/Inference - see Google Classroom for directions",
         "source": "https://..."
     }
 
-Each site is formatted differently, so each has its own small parser.
-If a site changes its layout and a parser stops finding dates, it falls
-back to returning the raw text so nothing silently disappears.
+If a parser can't confidently find structured entries, it falls back to
+returning the raw page text rather than silently returning nothing.
 """
 
 import re
@@ -29,35 +31,39 @@ HEADERS = {
 
 TODAY = datetime.date.today()
 CURRENT_YEAR = TODAY.year
-
-SITES = {
-    "math": "https://sites.google.com/cusdk8.org/mslarcher/ccgeometry/ccgeometry-first-semester",
-    "language_arts": "https://sites.google.com/a/cusdk8.org/mr-greene-s-language-arts-class/home/home-work",
-    "science": "https://sites.google.com/cusdk8.org/8th-grade-science-dalvand/homework",
-}
-
 WEEKDAYS = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
 
 
-def _get_page_text(url):
-    """Fetch a page and return its visible text, one chunk of text per line."""
-    resp = requests.get(url, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+def _school_year_start():
+    """The calendar year the CURRENT school year began in. School years run
+    roughly Aug-June, so Jan-Jun dates belong to the year AFTER this."""
+    return TODAY.year if TODAY.month >= 7 else TODAY.year - 1
 
-    # Drop obvious non-content chrome
-    for tag in soup(["script", "style", "nav", "header", "footer"]):
-        tag.decompose()
 
-    text = soup.get_text("\n")
-    lines = [ln.strip() for ln in text.split("\n")]
-    lines = [ln for ln in lines if ln]
-    return lines
+def _year_for_month(month):
+    start = _school_year_start()
+    return start if month >= 7 else start + 1
+
+
+MD_ONLY_RE = re.compile(r"^(\d{1,2})[/-](\d{1,2})$")
 
 
 def _safe_parse_date(raw):
-    """Try to turn a fuzzy date string into an ISO date. Returns None on failure
-    or if the result is an implausible school-year date."""
+    """Turn a fuzzy date string into an ISO date, or None on failure.
+    Bare 'M/D' strings (no year) get the correct school year inferred,
+    instead of always assuming the current calendar year."""
+    if not raw:
+        return None
+    raw = raw.strip().rstrip(",")
+
+    m = MD_ONLY_RE.match(raw)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        try:
+            return datetime.date(_year_for_month(month), month, day).isoformat()
+        except ValueError:
+            return None
+
     try:
         dt = dateparser.parse(raw, fuzzy=True, default=datetime.datetime(CURRENT_YEAR, 1, 1))
         if dt.year < CURRENT_YEAR - 1 or dt.year > CURRENT_YEAR + 1:
@@ -67,106 +73,147 @@ def _safe_parse_date(raw):
         return None
 
 
-# ---------------------------------------------------------------------------
-# Language Arts — simple "M/D  description" lines, most recent at the top
-# ---------------------------------------------------------------------------
-LA_LINE = re.compile(r"^(\d{1,2})/(\d{1,2})\s+(.*)$")
+def _get_page_text(url):
+    """Fetch a page and return its visible text as a list of non-empty lines."""
+    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer"]):
+        tag.decompose()
+    text = soup.get_text("\n")
+    return [ln.strip() for ln in text.split("\n") if ln.strip()]
 
 
-def scrape_language_arts():
-    url = SITES["language_arts"]
-    entries = []
+def _error_entry(teacher, message):
+    return [{
+        "subject": teacher["subject"], "date": None, "posted": None,
+        "text": message, "source": teacher["url"],
+    }]
+
+
+# ---------------------------------------------------------------------------
+# Parser: date_prefix_line
+# Simple "M/D  description" lines, e.g. Mr. Greene's Language Arts page.
+# ---------------------------------------------------------------------------
+DATE_PREFIX_RE = re.compile(r"^(\d{1,2})/(\d{1,2})\s+(.*)$")
+
+
+def parse_date_prefix_line(teacher):
     try:
-        lines = _get_page_text(url)
+        lines = _get_page_text(teacher["url"])
     except requests.RequestException as e:
-        return [{"subject": "language_arts", "date": None, "posted": None,
-                  "text": f"Couldn't reach the Language Arts site ({e}).", "source": url}]
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
 
+    entries = []
     for line in lines:
-        m = LA_LINE.match(line)
+        m = DATE_PREFIX_RE.match(line)
         if not m:
             continue
         month, day, desc = m.groups()
-        posted = _safe_parse_date(f"{month}/{day}/{CURRENT_YEAR}")
+        posted = _safe_parse_date(f"{month}/{day}")
         entries.append({
-            "subject": "language_arts",
-            "date": None,        # this site doesn't separate "due date" from "posted date"
-            "posted": posted,
-            "text": desc.strip(),
-            "source": url,
+            "subject": teacher["subject"], "date": None, "posted": posted,
+            "text": desc.strip(), "source": teacher["url"],
         })
     return entries
 
 
 # ---------------------------------------------------------------------------
-# Science — "Weekday, M-D-YY" header, description lines, then "Due: ..."
+# Parser: weekday_due
+# "Weekday, date" header, description lines, then "Due: date" — e.g. Dalvand's
+# Science page.
 # ---------------------------------------------------------------------------
-SCI_DATE_HEADER = re.compile(rf"^({WEEKDAYS}),\s*(.+)$")
-SCI_DUE = re.compile(r"^Due:\s*(.*)$", re.IGNORECASE)
-SCI_WEEK_HEADER = re.compile(r"^Week\s*#?\d+.*$", re.IGNORECASE)
+WEEKDAY_HEADER_RE = re.compile(rf"^({WEEKDAYS}),\s*(.+)$")
+DUE_RE = re.compile(r"^Due:\s*(.*)$", re.IGNORECASE)
+WEEK_HEADER_RE = re.compile(r"^Week\s*#?\d+.*$", re.IGNORECASE)
 
 
-def scrape_science():
-    url = SITES["science"]
-    entries = []
+def parse_weekday_due(teacher):
     try:
-        lines = _get_page_text(url)
+        lines = _get_page_text(teacher["url"])
     except requests.RequestException as e:
-        return [{"subject": "science", "date": None, "posted": None,
-                  "text": f"Couldn't reach the Science site ({e}).", "source": url}]
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
 
+    entries = []
     current = None
     for line in lines:
-        if SCI_WEEK_HEADER.match(line):
+        if WEEK_HEADER_RE.match(line):
             continue
-
-        header_match = SCI_DATE_HEADER.match(line)
-        due_match = SCI_DUE.match(line)
-
+        header_match = WEEKDAY_HEADER_RE.match(line)
+        due_match = DUE_RE.match(line)
         if header_match:
             if current and current["text"]:
                 entries.append(current)
             posted = _safe_parse_date(header_match.group(2))
-            current = {"subject": "science", "date": None, "posted": posted,
-                       "text": "", "source": url}
+            current = {"subject": teacher["subject"], "date": None, "posted": posted,
+                       "text": "", "source": teacher["url"]}
         elif due_match and current is not None:
             current["date"] = _safe_parse_date(due_match.group(1)) or current["date"]
         elif current is not None:
             current["text"] = (current["text"] + " " + line).strip() if current["text"] else line
-
     if current and current["text"]:
         entries.append(current)
     return entries
 
 
 # ---------------------------------------------------------------------------
-# Math — the homework itself lives in a linked Google Doc, not the page.
-# Ms. Larcher's doc uses a TABLE with separate "Date Assigned" and "Date Due"
-# columns, so we export the doc as HTML (which preserves table structure,
-# unlike a plain-text export) and read it column by column. If no table is
-# found (doc reformatted, or it's a plain-text doc after all), we fall back
-# to a line-by-line date scan, and finally to dumping the raw text so
-# nothing silently disappears.
+# Parser: classwork_homework_log
+# "Weekday, M/D" header, then "Classwork: ..." and "Homework: ..." lines,
+# repeated daily — the CPM-style log used by several CUSD math teachers,
+# e.g. Village C's Math 8 page.
+# ---------------------------------------------------------------------------
+CH_HEADER_RE = re.compile(rf"^(?:(?:{WEEKDAYS}),?\s*)?(\d{{1,2}}/\d{{1,2}})$")
+HOMEWORK_LINE_RE = re.compile(r"^Homework(?:\s*(?:and|&)\s*Classwork)?:\s*(.*)$", re.IGNORECASE)
+SKIP_TEXT = {"none", "none.", "n/a", "na", ""}
+
+
+def parse_classwork_homework_log(teacher):
+    try:
+        lines = _get_page_text(teacher["url"])
+    except requests.RequestException as e:
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
+
+    entries = []
+    current_date = None
+    for line in lines:
+        header_match = CH_HEADER_RE.match(line)
+        if header_match:
+            current_date = _safe_parse_date(header_match.group(1))
+            continue
+        hw_match = HOMEWORK_LINE_RE.match(line)
+        if hw_match and current_date:
+            text = hw_match.group(1).strip()
+            if text.lower().rstrip(".") not in SKIP_TEXT:
+                entries.append({
+                    "subject": teacher["subject"], "date": current_date, "posted": current_date,
+                    "text": text, "source": teacher["url"],
+                })
+    return entries
+
+
+# ---------------------------------------------------------------------------
+# Parser: google_doc_table
+# The teacher's page links to a Google Doc with a TABLE inside it (columns
+# like "Date Assigned" / "Date Due" / "Assignment") — e.g. Ms. Larcher's
+# Geometry page. Falls back to a line-by-line date scan, then to raw text,
+# if no usable table is found.
 # ---------------------------------------------------------------------------
 DOC_ID_RE = re.compile(r"/d/([a-zA-Z0-9_-]+)|[?&]id=([a-zA-Z0-9_-]+)")
-DATE_LINE = re.compile(
+DATE_LINE_RE = re.compile(
     r"^(?:(" + WEEKDAYS + r"),?\s*)?"
     r"(\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?|[A-Za-z]+\s+\d{1,2}(,?\s*\d{2,4})?)\b[:\-]?\s*(.*)$"
 )
-
 ASSIGNED_HEADER_HINTS = ("assign", "posted", "given", "start")
 DUE_HEADER_HINTS = ("due",)
 DESC_HEADER_HINTS = ("assignment", "homework", "topic", "description", "notes", "task", "work")
 
 
-def _extract_table_entries(doc_soup, doc_link):
-    """Read Date Assigned / Date Due / Assignment out of the doc's table(s)."""
+def _extract_table_entries(doc_soup, teacher):
     entries = []
     for table in doc_soup.find_all("table"):
         rows = table.find_all("tr")
         if len(rows) < 2:
             continue
-
         header_cells = [c.get_text(" ", strip=True) for c in rows[0].find_all(["th", "td"])]
         header_lower = [h.lower() for h in header_cells]
         if not header_cells:
@@ -181,10 +228,8 @@ def _extract_table_entries(doc_soup, doc_link):
             elif desc_idx is None and any(hint in h for hint in DESC_HEADER_HINTS):
                 desc_idx = i
 
-        # This table isn't a homework table if it has neither an assigned nor a due column
         if assigned_idx is None and due_idx is None:
             continue
-
         if desc_idx is None:
             used = {i for i in (assigned_idx, due_idx) if i is not None}
             remaining = [i for i in range(len(header_cells)) if i not in used]
@@ -203,41 +248,37 @@ def _extract_table_entries(doc_soup, doc_link):
             if not text:
                 continue
             entries.append({
-                "subject": "math",
-                "date": due,
-                "posted": posted,
-                "text": text,
-                "source": doc_link,
+                "subject": teacher["subject"], "date": due, "posted": posted,
+                "text": text, "source": teacher["url"],
             })
     return entries
 
 
-def _extract_line_entries(doc_text, doc_link):
-    """Fallback for a non-table doc: scan lines for a leading date."""
+def _extract_line_entries(doc_text, teacher):
     entries = []
     lines = [ln.strip() for ln in doc_text.split("\n") if ln.strip()]
     current = None
     for line in lines:
-        dm = DATE_LINE.match(line)
+        dm = DATE_LINE_RE.match(line)
         if dm and len(line) < 60:
             if current and current["text"]:
                 entries.append(current)
             posted = _safe_parse_date(dm.group(2))
-            current = {"subject": "math", "date": posted, "posted": posted,
-                       "text": (dm.group(5) or "").strip(), "source": doc_link}
+            current = {"subject": teacher["subject"], "date": posted, "posted": posted,
+                       "text": (dm.group(5) or "").strip(), "source": teacher["url"]}
         elif current is not None:
             current["text"] = (current["text"] + " " + line).strip() if current["text"] else line
         else:
-            current = {"subject": "math", "date": None, "posted": None, "text": line, "source": doc_link}
+            current = {"subject": teacher["subject"], "date": None, "posted": None,
+                       "text": line, "source": teacher["url"]}
     if current and current["text"]:
         entries.append(current)
     return entries, lines
 
 
-def scrape_math():
-    page_url = SITES["math"]
+def parse_google_doc_table(teacher):
     try:
-        resp = requests.get(page_url, headers=HEADERS, timeout=15)
+        resp = requests.get(teacher["url"], headers=HEADERS, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         doc_link = None
@@ -246,49 +287,46 @@ def scrape_math():
                 doc_link = a["href"]
                 break
         if not doc_link:
-            return [{"subject": "math", "date": None, "posted": None,
-                      "text": "No homework document link found on the Math page right now.",
-                      "source": page_url}]
+            return _error_entry(teacher, "No homework document link found on this page right now.")
 
         m = DOC_ID_RE.search(doc_link)
         doc_id = next((g for g in (m.groups() if m else []) if g), None)
         if not doc_id:
-            return [{"subject": "math", "date": None, "posted": None,
-                      "text": "Found a link on the Math page but couldn't read its document ID.",
-                      "source": doc_link}]
+            return _error_entry(teacher, "Found a link but couldn't read its document ID.")
 
-        # HTML export preserves table structure — try this first since her doc uses a table
         html_url = f"https://docs.google.com/document/d/{doc_id}/export?format=html"
         html_resp = requests.get(html_url, headers=HEADERS, timeout=15)
         html_resp.raise_for_status()
         doc_soup = BeautifulSoup(html_resp.text, "html.parser")
 
-        entries = _extract_table_entries(doc_soup, doc_link)
+        entries = _extract_table_entries(doc_soup, teacher)
         if entries:
             return entries
 
-        # No usable table found — fall back to scanning plain text for dated lines
         txt_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
         txt_resp = requests.get(txt_url, headers=HEADERS, timeout=15)
         txt_resp.raise_for_status()
-        entries, lines = _extract_line_entries(txt_resp.text, doc_link)
+        entries, lines = _extract_line_entries(txt_resp.text, teacher)
         if entries:
             return entries
 
         full_text = " ".join(lines)[:2000]
-        return [{"subject": "math", "date": None, "posted": None,
-                  "text": full_text or "The homework document appears to be empty.",
-                  "source": doc_link}]
+        return _error_entry(teacher, full_text or "The homework document appears to be empty.")
 
     except requests.RequestException as e:
-        return [{"subject": "math", "date": None, "posted": None,
-                  "text": f"Couldn't reach the Math site or its homework document ({e}).",
-                  "source": page_url}]
+        return _error_entry(teacher, f"Couldn't reach the homework document ({e}).")
 
 
-def scrape_all():
-    return {
-        "math": scrape_math(),
-        "science": scrape_science(),
-        "language_arts": scrape_language_arts(),
-    }
+PARSERS = {
+    "date_prefix_line": parse_date_prefix_line,
+    "weekday_due": parse_weekday_due,
+    "classwork_homework_log": parse_classwork_homework_log,
+    "google_doc_table": parse_google_doc_table,
+}
+
+
+def fetch_homework_for_teacher(teacher):
+    parser = PARSERS.get(teacher["parser"])
+    if not parser:
+        return _error_entry(teacher, f"No parser configured for '{teacher['parser']}'.")
+    return parser(teacher)
