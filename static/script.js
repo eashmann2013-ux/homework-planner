@@ -5,16 +5,28 @@ const SUBJECT_LABEL = {
   google_classroom: "Google Classroom",
 };
 
+const STORAGE_KEY = "homeworkPlannerTeachers"; // { math: "id", science: "id", language_arts: "id" }
+
 const state = {
   subject: "all",
   homework: { math: [], science: [], language_arts: [], google_classroom: [] },
   today: null,
   classroomConnected: false,
   classroomConfigured: true,
+  teacherOptions: { math: [], science: [], language_arts: [] },
+  selectedTeachers: { math: "", science: "", language_arts: "" },
 };
 
 const els = {
   status: document.getElementById("statusLine"),
+  changeTeachersBtn: document.getElementById("changeTeachersBtn"),
+  pickerSection: document.getElementById("pickerSection"),
+  mathPicker: document.getElementById("mathPicker"),
+  sciencePicker: document.getElementById("sciencePicker"),
+  laPicker: document.getElementById("laPicker"),
+  savePickerBtn: document.getElementById("savePickerBtn"),
+  pickerMsg: document.getElementById("pickerMsg"),
+  appContent: document.getElementById("appContent"),
   tabs: document.getElementById("tabs"),
   refreshBtn: document.getElementById("refreshBtn"),
   todaySection: document.getElementById("todaySection"),
@@ -28,6 +40,90 @@ const els = {
   disconnectBtn: document.getElementById("disconnectBtn"),
 };
 
+// ---------------------------------------------------------------------------
+// Teacher selection (localStorage)
+// ---------------------------------------------------------------------------
+function loadSavedTeachers() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.math || parsed.science || parsed.language_arts)) return parsed;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveTeachers(selection) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+}
+
+function populatePicker(select, options, selectedId) {
+  const placeholder = select.querySelector("option[value='']");
+  select.innerHTML = "";
+  if (placeholder) select.appendChild(placeholder);
+  options.forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = `${t.name} — ${t.course}`;
+    if (t.id === selectedId) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+async function showPicker() {
+  els.appContent.hidden = true;
+  els.pickerSection.hidden = false;
+  els.changeTeachersBtn.hidden = true;
+  els.status.textContent = "Pick your teachers to get started.";
+
+  if (!state.teacherOptions.math.length && !state.teacherOptions.science.length) {
+    try {
+      const res = await fetch("/api/teachers");
+      state.teacherOptions = await res.json();
+    } catch (e) {
+      els.status.textContent = "Couldn't load the teacher list — try refreshing the page.";
+      return;
+    }
+  }
+
+  const saved = loadSavedTeachers() || {};
+  populatePicker(els.mathPicker, state.teacherOptions.math, saved.math);
+  populatePicker(els.sciencePicker, state.teacherOptions.science, saved.science);
+  populatePicker(els.laPicker, state.teacherOptions.language_arts, saved.language_arts);
+}
+
+function hidePicker() {
+  els.pickerSection.hidden = true;
+  els.appContent.hidden = false;
+  els.changeTeachersBtn.hidden = false;
+}
+
+els.savePickerBtn.addEventListener("click", () => {
+  const selection = {
+    math: els.mathPicker.value,
+    science: els.sciencePicker.value,
+    language_arts: els.laPicker.value,
+  };
+  if (!selection.math && !selection.science && !selection.language_arts) {
+    els.pickerMsg.hidden = false;
+    return;
+  }
+  els.pickerMsg.hidden = true;
+  saveTeachers(selection);
+  state.selectedTeachers = selection;
+  hidePicker();
+  loadData(false);
+});
+
+els.changeTeachersBtn.addEventListener("click", () => {
+  showPicker();
+});
+
+// ---------------------------------------------------------------------------
+// Homework display (same as before, now driven by selectedTeachers)
+// ---------------------------------------------------------------------------
 function formatDayLabel(isoDate, todayIso) {
   if (!isoDate) return "No date";
   const d = new Date(isoDate + "T00:00:00");
@@ -104,8 +200,6 @@ function render() {
   const dueToday = entries.filter((e) => e.date === state.today);
   const rest = entries.filter((e) => e.date !== state.today);
 
-  // Sort newest-posted first, so the most recently added homework shows at the top
-  // (falls back to due date if an entry has no posted date)
   rest.sort((a, b) => {
     const aKey = a.posted || a.date || "";
     const bKey = b.posted || b.date || "";
@@ -130,23 +224,31 @@ function render() {
   }
 }
 
+function buildQuery(extra) {
+  const params = new URLSearchParams();
+  if (state.selectedTeachers.math) params.set("math_teacher", state.selectedTeachers.math);
+  if (state.selectedTeachers.science) params.set("science_teacher", state.selectedTeachers.science);
+  if (state.selectedTeachers.language_arts) params.set("language_arts_teacher", state.selectedTeachers.language_arts);
+  if (extra) Object.entries(extra).forEach(([k, v]) => params.set(k, v));
+  return params.toString();
+}
+
 async function loadData(force) {
   els.status.textContent = force ? "Checking your teachers' sites again…" : "Checking your teachers' sites…";
   els.refreshBtn.disabled = true;
   try {
-    const res = await fetch(force ? "/api/refresh" : "/api/homework", {
-      method: force ? "POST" : "GET",
-    });
+    const query = buildQuery();
+    const url = (force ? "/api/refresh" : "/api/homework") + (query ? "?" + query : "");
+    const res = await fetch(url, { method: force ? "POST" : "GET" });
     const data = await res.json();
     state.homework = data.homework;
     state.today = data.today;
     state.classroomConnected = data.classroom_connected;
     state.classroomConfigured = data.classroom_configured;
-    if (data.classroom_error) {
-      console.warn("Classroom error:", data.classroom_error);
+    if (data.fetched_at) {
+      const fetchedAt = new Date(data.fetched_at);
+      els.lastChecked.textContent = "Last checked " + fetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
-    const fetchedAt = new Date(data.fetched_at);
-    els.lastChecked.textContent = "Last checked " + fetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     els.status.textContent = "Here's what's due.";
     render();
   } catch (err) {
@@ -184,10 +286,21 @@ function applyInitialTab() {
   if (btn) btn.classList.add("active");
   state.subject = requested;
 
-  // clean the URL so refreshing later doesn't keep forcing this tab
   const cleanUrl = window.location.pathname;
   window.history.replaceState({}, "", cleanUrl);
 }
 
-applyInitialTab();
-loadData(false);
+// ---------------------------------------------------------------------------
+// Startup
+// ---------------------------------------------------------------------------
+(async function start() {
+  const saved = loadSavedTeachers();
+  if (!saved) {
+    await showPicker();
+    return;
+  }
+  state.selectedTeachers = { math: saved.math || "", science: saved.science || "", language_arts: saved.language_arts || "" };
+  hidePicker();
+  applyInitialTab();
+  loadData(false);
+})();
