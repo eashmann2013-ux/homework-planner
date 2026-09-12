@@ -48,6 +48,8 @@
     <button class="tab tab-science" data-subject="science">Science</button>
     <button class="tab tab-language_arts" data-subject="language_arts">Language Arts</button>
     <button class="tab tab-google_classroom" data-subject="google_classroom">Google Classroom</button>
+    <button class="tab tab-games" data-subject="games">Games</button>
+    <button class="tab tab-music" data-subject="music">Music</button>
     <button class="refresh-btn" id="refreshBtn" title="Check the sites again right now">&#8635; Refresh</button>
   </nav>
 
@@ -62,6 +64,47 @@
       <h2>Connect Google Classroom</h2>
       <p id="classroomConnectMsg">See homework from Google Classroom here too, alongside your teacher sites.</p>
       <a href="/connect-classroom" id="connectBtn" class="connect-btn">Connect Google Classroom</a>
+    </section>
+
+    <section id="gamesSection" class="games-panel" hidden>
+      <h2>Take a break</h2>
+      <p class="panel-intro">A quick game of Tetris — pause your homework, not your brain.</p>
+      <div class="tetris-wrap">
+        <canvas id="tetrisCanvas" width="240" height="480"></canvas>
+        <div class="tetris-side">
+          <div class="tetris-stat">
+            <span class="tetris-stat-label">Score</span>
+            <span class="tetris-stat-value" id="tetrisScore">0</span>
+          </div>
+          <div class="tetris-stat">
+            <span class="tetris-stat-label">Lines</span>
+            <span class="tetris-stat-value" id="tetrisLines">0</span>
+          </div>
+          <button id="tetrisStartBtn" class="save-picker-btn">Start</button>
+          <p class="tetris-controls">&#8592; &#8594; move &middot; &#8593; rotate &middot; &#8595; drop &middot; space hard-drop</p>
+          <p id="tetrisMsg" class="tetris-msg" hidden>Game over — nice run.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="musicSection" class="music-panel" hidden>
+      <h2>Study music</h2>
+      <p class="panel-intro">Something playing in the background while you work.</p>
+      <div class="picker-row">
+        <label for="musicStation">Station</label>
+        <select id="musicStation">
+          <option value="jfKfPfyJRdk">Lofi Hip Hop Radio</option>
+          <option value="1Tl2FtV06qo">Asian Lofi Radio</option>
+          <option value="rUxyKA_-grg">Lofi Sleep &amp; Chill</option>
+          <option value="b4g8Uz7KP1A">Cozy Lofi Beats</option>
+        </select>
+      </div>
+      <div class="music-embed-wrap">
+        <iframe id="musicFrame" width="100%" height="320" src=""
+          title="Study music player" frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen></iframe>
+      </div>
     </section>
 
     <section id="upcomingSection">
@@ -81,6 +124,7 @@
 
 </div>
 
+<script src="{{ url_for('static', filename='tetris.js') }}"></script>
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
