@@ -317,11 +317,130 @@ def parse_google_doc_table(teacher):
         return _error_entry(teacher, f"Couldn't reach the homework document ({e}).")
 
 
+# ---------------------------------------------------------------------------
+# Parser: assignment_due_pairs
+# A native Google Sites table rendered directly on the page (not a linked
+# doc) as repeating "Assignment" / text / "Due Date" / text blocks — e.g.
+# Mrs. DeWeese's Algebra and Geometry pages. Trailing empty pairs (the
+# teacher left blank rows for future weeks) are skipped automatically.
+# ---------------------------------------------------------------------------
+def parse_assignment_due_pairs(teacher):
+    try:
+        lines = _get_page_text(teacher["url"])
+    except requests.RequestException as e:
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
+
+    entries = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().lower() != "assignment":
+            i += 1
+            continue
+        i += 1
+        assignment_text = ""
+        if i < len(lines) and lines[i].strip().lower() != "due date":
+            assignment_text = lines[i].strip()
+            i += 1
+        due_text = ""
+        if i < len(lines) and lines[i].strip().lower() == "due date":
+            i += 1
+            if i < len(lines) and lines[i].strip().lower() != "assignment":
+                due_text = lines[i].strip()
+                i += 1
+        if assignment_text:
+            entries.append({
+                "subject": teacher["subject"],
+                "date": _safe_parse_date(due_text),
+                "posted": _safe_parse_date(due_text),
+                "text": assignment_text,
+                "source": teacher["url"],
+            })
+    return entries
+
+
+# ---------------------------------------------------------------------------
+# Parser: weekly_image_notice
+# Homework posted as a screenshot image once per week, with no real text
+# underneath (e.g. Ms. Hansen's Science page). We can't read the assignment
+# itself, but we can at least surface "a new image was posted for this
+# week" so it shows up in the feed, with a nudge to check the real page.
+# ---------------------------------------------------------------------------
+WEEK_OF_RE = re.compile(r"Week\s*\d+\s*Week of\s*(.+)", re.IGNORECASE)
+
+
+def parse_weekly_image_notice(teacher):
+    try:
+        lines = _get_page_text(teacher["url"])
+    except requests.RequestException as e:
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
+
+    entries = []
+    for line in lines:
+        m = WEEK_OF_RE.match(line)
+        if not m:
+            continue
+        week_range = m.group(1).strip()
+        posted = _safe_parse_date(week_range)  # best-effort; often None for ranges, that's OK
+        entries.append({
+            "subject": teacher["subject"],
+            "date": None,
+            "posted": posted,
+            "text": f"New homework posted as an image for the week of {week_range} — "
+                    f"open {teacher['name']}'s page to see it (text can't be read automatically).",
+            "source": teacher["url"],
+        })
+    return entries
+
+
+# ---------------------------------------------------------------------------
+# Parser: month_abbrev_prefix_line
+# "MON D: description" entries, e.g. "SEP 8: ..." — Ms. Niksch's LA page.
+# Works on the whole joined page text (not line-by-line) since entries can
+# run together without reliable line breaks between them.
+# ---------------------------------------------------------------------------
+MONTH_ABBR = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+MONTH_ABBREV_RE = re.compile(r"\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+(\d{1,2}):\s*", re.IGNORECASE)
+
+
+def parse_month_abbrev_line(teacher):
+    try:
+        lines = _get_page_text(teacher["url"])
+    except requests.RequestException as e:
+        return _error_entry(teacher, f"Couldn't reach {teacher['name']}'s site ({e}).")
+
+    text = " ".join(lines)
+    matches = list(MONTH_ABBREV_RE.finditer(text))
+    entries = []
+    for i, m in enumerate(matches):
+        month = MONTH_ABBR.get(m.group(1).upper())
+        day = int(m.group(2))
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        desc = text[start:end].strip()
+        if not desc or not month:
+            continue
+        try:
+            posted = datetime.date(_year_for_month(month), month, day).isoformat()
+        except ValueError:
+            posted = None
+        entries.append({
+            "subject": teacher["subject"], "date": None, "posted": posted,
+            "text": desc, "source": teacher["url"],
+        })
+    return entries
+
+
 PARSERS = {
     "date_prefix_line": parse_date_prefix_line,
     "weekday_due": parse_weekday_due,
     "classwork_homework_log": parse_classwork_homework_log,
     "google_doc_table": parse_google_doc_table,
+    "assignment_due_pairs": parse_assignment_due_pairs,
+    "weekly_image_notice": parse_weekly_image_notice,
+    "month_abbrev_prefix_line": parse_month_abbrev_line,
 }
 
 
