@@ -177,7 +177,31 @@ function entryRow(entry, { showTag }) {
 
 function render() {
   const onClassroomTab = state.subject === "google_classroom";
+  const onGamesTab = state.subject === "games";
+  const onMusicTab = state.subject === "music";
   const needsConnect = onClassroomTab && !state.classroomConnected;
+
+  document.getElementById("gamesSection").hidden = !onGamesTab;
+  document.getElementById("musicSection").hidden = !onMusicTab;
+
+  if (!onGamesTab && window.TetrisGame) {
+    window.TetrisGame.stop();
+  }
+
+  if (onMusicTab) {
+    updateMusicEmbed();
+  }
+
+  if (onGamesTab || onMusicTab) {
+    els.todaySection.hidden = true;
+    els.upcomingList.innerHTML = "";
+    els.emptyMsg.hidden = true;
+    els.classroomConnect.hidden = true;
+    els.disconnectBtn.hidden = true;
+    document.getElementById("upcomingSection").hidden = true;
+    return;
+  }
+  document.getElementById("upcomingSection").hidden = false;
 
   if (needsConnect) {
     els.classroomConnect.hidden = false;
@@ -258,6 +282,22 @@ async function loadData(force) {
   }
 }
 
+function updateMusicEmbed() {
+  const stationSelect = document.getElementById("musicStation");
+  const frame = document.getElementById("musicFrame");
+  const videoId = stationSelect.value;
+  const desiredSrc = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+  if (!frame.src.includes(videoId)) {
+    frame.src = desiredSrc;
+  }
+}
+
+document.getElementById("musicStation").addEventListener("change", updateMusicEmbed);
+
+document.getElementById("tetrisStartBtn").addEventListener("click", () => {
+  if (window.TetrisGame) window.TetrisGame.start();
+});
+
 els.tabs.addEventListener("click", (evt) => {
   const btn = evt.target.closest(".tab");
   if (!btn) return;
@@ -278,7 +318,7 @@ els.disconnectBtn.addEventListener("click", async () => {
 function applyInitialTab() {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("tab");
-  const valid = ["all", "math", "science", "language_arts", "google_classroom"];
+  const valid = ["all", "math", "science", "language_arts", "google_classroom", "games", "music"];
   if (!requested || !valid.includes(requested)) return;
 
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
