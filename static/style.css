@@ -361,6 +361,70 @@ h2 {
   margin: 0;
 }
 
+.music-source-toggle {
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.music-source-btn {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border: none;
+  background: #fff;
+  color: var(--ink-soft);
+  padding: 9px 18px;
+  cursor: pointer;
+}
+
+.music-source-btn + .music-source-btn { border-left: 1px solid var(--rule); }
+
+.music-source-btn.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.music-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.music-input-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.music-action-btn {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  background: var(--ink);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.music-action-btn:hover { opacity: 0.9; }
+
+.music-hint {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
 .music-embed-wrap {
   border-radius: 10px;
   overflow: hidden;
@@ -375,6 +439,7 @@ h2 {
 @media (max-width: 480px) {
   .tetris-wrap { flex-direction: column; align-items: center; }
   #tetrisCanvas { max-width: 100%; height: auto; }
+  .music-input-row { flex-direction: column; }
 }
 
 .binder-foot {
@@ -396,7 +461,7 @@ h2 {
   .tab, .today-note { transition: none; transform: none; }
 }
 
-button:focus-visible, .tab:focus-visible {
+button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
