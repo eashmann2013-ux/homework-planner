@@ -90,19 +90,59 @@
     <section id="musicSection" class="music-panel" hidden>
       <h2>Study music</h2>
       <p class="panel-intro">Something playing in the background while you work.</p>
-      <div class="picker-row">
-        <label for="musicStation">Station</label>
-        <select id="musicStation">
-          <option value="jfKfPfyJRdk">Lofi Hip Hop Radio</option>
-          <option value="1Tl2FtV06qo">Asian Lofi Radio</option>
-          <option value="rUxyKA_-grg">Lofi Sleep &amp; Chill</option>
-          <option value="b4g8Uz7KP1A">Cozy Lofi Beats</option>
-        </select>
+
+      <div class="music-source-toggle" id="musicSourceToggle">
+        <button type="button" class="music-source-btn active" data-source="spotify">Spotify</button>
+        <button type="button" class="music-source-btn" data-source="youtube">Lofi radio</button>
       </div>
+
+      <div id="spotifyControls">
+        <div class="picker-row">
+          <label for="spotifyPlaylist">Study playlists</label>
+          <select id="spotifyPlaylist">
+            <option value="playlist:37i9dQZF1DWZeKCadgRdKQ">Deep Focus</option>
+            <option value="playlist:37i9dQZF1DX4sWSpwq3LiO">Peaceful Piano</option>
+            <option value="playlist:37i9dQZF1DWWQRwui0ExPn">Lofi Beats</option>
+            <option value="playlist:37i9dQZF1DWXLeA8Omikj7">Brain Food</option>
+            <option value="playlist:37i9dQZF1DX9sIqqvKsjG8">Instrumental Study</option>
+          </select>
+        </div>
+
+        <div class="picker-row">
+          <label for="spotifySearch">Find something else</label>
+          <div class="music-input-row">
+            <input type="text" id="spotifySearch" placeholder="Artist, song, or playlist name" autocomplete="off">
+            <button type="button" id="spotifySearchBtn" class="music-action-btn">Search on Spotify</button>
+          </div>
+          <p class="music-hint">Opens Spotify in a new tab. Open what you want there, choose Share, then Copy link, and paste it below.</p>
+        </div>
+
+        <div class="picker-row">
+          <label for="spotifyLink">Paste a Spotify link</label>
+          <div class="music-input-row">
+            <input type="text" id="spotifyLink" placeholder="https://open.spotify.com/..." autocomplete="off">
+            <button type="button" id="spotifyPlayBtn" class="music-action-btn">Play</button>
+          </div>
+          <p id="spotifyMsg" class="picker-msg" hidden></p>
+        </div>
+      </div>
+
+      <div id="youtubeControls" hidden>
+        <div class="picker-row">
+          <label for="musicStation">Station</label>
+          <select id="musicStation">
+            <option value="jfKfPfyJRdk">Lofi Hip Hop Radio</option>
+            <option value="1Tl2FtV06qo">Asian Lofi Radio</option>
+            <option value="rUxyKA_-grg">Lofi Sleep &amp; Chill</option>
+            <option value="b4g8Uz7KP1A">Cozy Lofi Beats</option>
+          </select>
+        </div>
+      </div>
+
       <div class="music-embed-wrap">
-        <iframe id="musicFrame" width="100%" height="320" src=""
+        <iframe id="musicFrame" width="100%" height="352" src=""
           title="Study music player" frameborder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
           allowfullscreen></iframe>
       </div>
     </section>
