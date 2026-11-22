@@ -15,6 +15,8 @@ const state = {
   classroomConfigured: true,
   teacherOptions: { math: [], science: [], language_arts: [] },
   selectedTeachers: { math: "", science: "", language_arts: "" },
+  musicSource: "spotify", // "spotify" or "youtube"
+  spotifyItem: null,      // { type, id } currently chosen for the Spotify player
 };
 
 const els = {
@@ -282,17 +284,101 @@ async function loadData(force) {
   }
 }
 
-function updateMusicEmbed() {
-  const stationSelect = document.getElementById("musicStation");
+// ---------------------------------------------------------------------------
+// Music: Spotify embeds (no login needed) + YouTube lofi radio
+// ---------------------------------------------------------------------------
+const SPOTIFY_URL_RE = /open\.spotify\.com\/(?:intl-[a-z]{2,3}\/)?(?:embed\/)?(playlist|album|track|artist|episode|show)\/([A-Za-z0-9]{15,30})/;
+const SPOTIFY_URI_RE = /^spotify:(playlist|album|track|artist|episode|show):([A-Za-z0-9]{15,30})$/;
+
+function parseSpotifyLink(input) {
+  const text = (input || "").trim();
+  const m = text.match(SPOTIFY_URL_RE) || text.match(SPOTIFY_URI_RE);
+  if (!m) return null;
+  return { type: m[1], id: m[2] };
+}
+
+function parseSpotifyOption(value) {
+  const [type, id] = (value || "").split(":");
+  return type && id ? { type, id } : null;
+}
+
+function setMusicFrame(src, height) {
   const frame = document.getElementById("musicFrame");
-  const videoId = stationSelect.value;
-  const desiredSrc = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-  if (!frame.src.includes(videoId)) {
-    frame.src = desiredSrc;
+  if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
+  frame.setAttribute("height", String(height));
+}
+
+function updateMusicEmbed() {
+  const onSpotify = state.musicSource === "spotify";
+  document.getElementById("spotifyControls").hidden = !onSpotify;
+  document.getElementById("youtubeControls").hidden = onSpotify;
+  document.querySelectorAll(".music-source-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.source === state.musicSource);
+  });
+
+  if (onSpotify) {
+    if (!state.spotifyItem) {
+      state.spotifyItem = parseSpotifyOption(document.getElementById("spotifyPlaylist").value);
+    }
+    const item = state.spotifyItem;
+    if (item) {
+      const compact = item.type === "track" || item.type === "episode";
+      setMusicFrame(`https://open.spotify.com/embed/${item.type}/${item.id}?utm_source=generator`, compact ? 152 : 352);
+    }
+  } else {
+    const videoId = document.getElementById("musicStation").value;
+    setMusicFrame(`https://www.youtube.com/embed/${videoId}?autoplay=1`, 352);
   }
 }
 
+function showSpotifyMsg(text) {
+  const msg = document.getElementById("spotifyMsg");
+  msg.textContent = text;
+  msg.hidden = !text;
+}
+
+function playPastedSpotifyLink() {
+  const input = document.getElementById("spotifyLink");
+  const item = parseSpotifyLink(input.value);
+  if (!item) {
+    showSpotifyMsg("That doesn't look like a Spotify link. Copy it from Spotify with Share, then Copy link.");
+    return;
+  }
+  showSpotifyMsg("");
+  state.spotifyItem = item;
+  updateMusicEmbed();
+}
+
+document.getElementById("musicSourceToggle").addEventListener("click", (evt) => {
+  const btn = evt.target.closest(".music-source-btn");
+  if (!btn) return;
+  state.musicSource = btn.dataset.source;
+  updateMusicEmbed();
+});
+
+document.getElementById("spotifyPlaylist").addEventListener("change", (evt) => {
+  state.spotifyItem = parseSpotifyOption(evt.target.value);
+  showSpotifyMsg("");
+  updateMusicEmbed();
+});
+
 document.getElementById("musicStation").addEventListener("change", updateMusicEmbed);
+
+document.getElementById("spotifySearchBtn").addEventListener("click", () => {
+  const query = document.getElementById("spotifySearch").value.trim();
+  const url = "https://open.spotify.com/search" + (query ? "/" + encodeURIComponent(query) : "");
+  window.open(url, "_blank", "noopener");
+});
+
+document.getElementById("spotifySearch").addEventListener("keydown", (evt) => {
+  if (evt.key === "Enter") document.getElementById("spotifySearchBtn").click();
+});
+
+document.getElementById("spotifyPlayBtn").addEventListener("click", playPastedSpotifyLink);
+
+document.getElementById("spotifyLink").addEventListener("keydown", (evt) => {
+  if (evt.key === "Enter") playPastedSpotifyLink();
+});
 
 document.getElementById("tetrisStartBtn").addEventListener("click", () => {
   if (window.TetrisGame) window.TetrisGame.start();
